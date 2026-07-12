@@ -306,6 +306,116 @@ INSERT INTO hashes (file_path, hash) VALUES ('package.json', 'a25d194c64bdc9f584
 COMMIT;
 ```
 
+### 8. Token and Legacy Protocol Integrations (JWT, API Keys, NTLM)
+
+**NTLM Password Hash Generation (UTF-16LE Input + MD4 + Hex-Upper Output)**:
+Calculate the legacy Windows NTLM-compatible hash of a user's password string:
+```bash
+./hashcalcmt --mode=string --hash=MD4 --input-encoding=utf16le --output-format=hex-upper "password"
+```
+**Sample Output:**
+```text
+8846F7EAEE8FB117AD06BDD830B7586C
+```
+
+**JSON Web Token (JWT) Segment Decoding (Base64Url Input + Raw Output)**:
+Decode the Base64Url-encoded payload of a JWT token string directly back to plain JSON on the CLI:
+```bash
+./hashcalcmt --mode=string --input-encoding=base64url --output-format=raw "eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ"
+```
+**Sample Output:**
+```json
+{"sub":"1234567890","name":"John Doe","iat":1516239022}
+```
+
+**JSON Web Token (JWT) Signature Formatting (Hex Input + Base64Url Output)**:
+Transcode a raw hex signature string into the standard padding-free URL-safe Base64 format required for a JWT signature block:
+```bash
+./hashcalcmt --mode=string --input-encoding=hex --output-format=base64url "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+```
+**Sample Output:**
+```text
+ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0
+```
+
+**Secure API Bearer Token Database Lookup Hashing (Base64Url Input + SHA256 + Hex Output)**:
+Compute the SHA256 database lookup hash from an incoming Base64Url-encoded client bearer token:
+```bash
+./hashcalcmt --mode=string --hash=SHA256 --input-encoding=base64url --output-format=hex "client_token_xyz"
+```
+
+### 9. Real-World DevOps & Infrastructure Pipelines
+
+**GitOps Config Rollouts (Auto-triggering Kubernetes rollouts)**:
+Calculate the SHA256 of a configuration file and inject it as a template annotation in a deployment manifest to trigger rolling updates when changes occur:
+```bash
+CONFIG_HASH=$(./hashcalcmt --mode=file --hash=SHA256 --output-format=hex config.yaml)
+sed -i "s/config-checksum: .*/config-checksum: \"${CONFIG_HASH}\"/" deployment.yaml
+```
+
+**Scanning & Identifying Duplicate Files (Fast CSV processing)**:
+Scan a directory using the ultra-fast `XXH3-128` algorithm (18.95 GB/s), write results in CSV, and filter duplicates using `awk`:
+```bash
+./hashcalcmt --mode=directory --hash=XXH3-128 --format=csv --out-file=manifest.csv
+awk -F, 'count[$2]++ {print "Duplicate file path: " $1} {paths[$2]=$1}' manifest.csv
+```
+
+**Piping Streaming Downloads On-The-Fly (Zero disk-write hashing)**:
+Stream download an ISO file using standard input (`-`) to compute its SHA256 checksum on-the-fly without saving the file to disk first:
+```bash
+curl -sL "https://releases.ubuntu.com/24.04/ubuntu-24.04-live-server-amd64.iso" | ./hashcalcmt --mode=file --hash=SHA256 -
+```
+
+**Integrity Verification of a Live Kubernetes Secret**:
+Verify if a base64-encoded Kubernetes secret matches a target local hash without writing plaintext values to logs or storage:
+```bash
+kubectl get secret database-creds -o jsonpath='{.data.password}' | ./hashcalcmt --mode=string --input-encoding=base64 --hash=SHA256
+```
+
+**Forensic Malware / File Search (Identifying compromised system binaries)**:
+Concurrently scan a system folder using MD5 and filter results to identify files matching a known malicious indicator of compromise (IOC) hash:
+```bash
+./hashcalcmt --mode=directory --hash=MD5 --format=csv --path=/usr/bin | grep "8846f7eaee8fb117ad06bdd830b7586c"
+```
+
+**Multi-Segment Backup Verification (Validating split database dumps)**:
+Concurrently calculate the SHA256 hashes of multiple database dump segments listed in a text file and output them as a tab-separated values (TSV) manifest:
+```bash
+./hashcalcmt --mode=file-list --hash=SHA256 --format=tsv --out-file=backup_checksums.tsv segment_list.txt
+```
+
+**Directory Synchronization Auditing (Post-Migration Verification)**:
+Generate TSV hash manifests of a source and destination directory using the ultra-fast `XXH3-128` algorithm, then run a diff to verify that all file data matches:
+```bash
+# On Server A (Source):
+./hashcalcmt --mode=directory --hash=XXH3-128 --format=tsv --out-file=source_manifest.tsv
+
+# On Server B (Destination):
+./hashcalcmt --mode=directory --hash=XXH3-128 --format=tsv --out-file=dest_manifest.tsv
+
+# Compare the manifests:
+diff source_manifest.tsv dest_manifest.tsv
+```
+
+**Intrusion Detection & File System Integrity Monitoring (Tripwire-Style)**:
+Establish a trusted baseline hash manifest of critical system folders, and periodically compare it against daily scans to detect unauthorized file creations, deletions, or modifications:
+```bash
+# 1. Establish trusted baseline:
+./hashcalcmt --mode=directory --hash=SHA256 --format=csv --path=/etc --out-file=/root/etc_baseline.csv
+
+# 2. Run periodic scan (e.g., daily cron):
+./hashcalcmt --mode=directory --hash=SHA256 --format=csv --path=/etc --out-file=/tmp/etc_daily.csv
+
+# 3. Detect changes:
+diff /root/etc_baseline.csv /tmp/etc_daily.csv
+```
+
+**Content-Addressable Storage (CAS) & Static Asset Cache Busting**:
+Concurrently rename all static assets in a build directory to their content-addressable SHA256 hashes in-place to prevent browser caching issues:
+```bash
+./hashcalcmt --mode=directory --hash=SHA256 --file-pattern="*.js" --rename
+```
+
 ## Hashing Algorithm Reference
 
 The following tables list all 31 supported hashing algorithms, grouped by main category of usage, showing their primary purpose and a computed example hash (of the string `"1.0.0\n"`):
