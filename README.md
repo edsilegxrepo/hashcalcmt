@@ -28,7 +28,8 @@ graph TD
     C -->|Distribute| D[Worker Pool - N Goroutines]
     D -->|Hash File| E[results channel - Unbuffered]
     E -->|Result / Error| F(main.go / processResults)
-    F -->|Write Result| G[Stdout / Output File / Rename]
+    F -->|Rename/Write| H[StructuredWriter]
+    H -->|Format layout & encoding| G[Stdout / Output File / Rename]
 ```
 
 ### Design Assumptions
@@ -68,34 +69,50 @@ sequenceDiagram
     participant Pipe as Pipeline (pipeline.go)
     participant Worker as Worker Pool (pipeline.go)
     participant Engine as Hashing Engine (hasher.go)
+    participant SW as StructuredWriter (main.go)
     participant Out as Output (Stdout/File)
 
     User->>Main: Exec hashcalcmt [flags] [args]
     Main->>Main: parseFlags() & validateConfig()
-    Main->>Pipe: Run() / RunFileList()
-    activate Pipe
-    Pipe-->>Worker: Start N worker goroutines
-    activate Worker
-    Pipe->>Pipe: WalkDir / Read File List
-    loop For each file found
-        Pipe->>Pipe: Send path to jobs channel
-        Pipe-->>Worker: job: filePath
-        Worker->>Worker: os.Open(filePath) or root.Open(relPath)
-        Worker->>Engine: hf(fileReader)
-        Engine->>Engine: sync.Pool Get buffer
-        Engine->>Engine: Compute Hash (io.CopyBuffer)
-        Engine->>Engine: sync.Pool Put buffer
-        Engine-->>Worker: Hash value / error
-        Worker->>Worker: file.Close()
-        Worker->>Pipe: result channel: Result{FilePath, Hash, Error}
+    alt Synchronous Mode (string / env / file)
+        Main->>Main: decodeInputString()
+        Main->>Engine: hf(inputReader)
+        Engine-->>Main: hash
+        Main->>SW: WriteSingle(source, hash)
+        SW->>SW: formatHash(hash) & escape/quote values
+        SW->>Out: Write formatted output (JSON/YAML/CSV/TSV/SQL/Text)
+    else Asynchronous Mode (directory / file-list)
+        Main->>SW: WriteHeader()
+        SW->>Out: Write header structure
+        Main->>Pipe: Run() / RunFileList()
+        activate Pipe
+        Pipe-->>Worker: Start N worker goroutines
+        activate Worker
+        Pipe->>Pipe: WalkDir / Read File List
+        loop For each file found
+            Pipe->>Pipe: Send path to jobs channel
+            Pipe-->>Worker: job: filePath
+            Worker->>Worker: os.Open(filePath) or root.Open(relPath)
+            Worker->>Engine: hf(fileReader)
+            Engine->>Engine: sync.Pool Get buffer
+            Engine->>Engine: Compute Hash (io.CopyBuffer)
+            Engine->>Engine: sync.Pool Put buffer
+            Engine-->>Worker: Hash value / error
+            Worker->>Worker: file.Close()
+            Worker->>Pipe: result channel: Result{FilePath, Hash, Error}
+        end
+        deactivate Pipe
+        loop For each result received
+            Worker-->>Main: results channel
+            Main->>Main: Optional os.Rename()
+            Main->>SW: WriteRecord(filePath, hash)
+            SW->>SW: formatHash(hash) & escape/quote values
+            SW->>Out: Write formatted record (JSON/YAML/CSV/TSV/SQL/Text)
+        end
+        deactivate Worker
+        Main->>SW: WriteFooter()
+        SW->>Out: Write footer structure
     end
-    deactivate Pipe
-    loop For each result received
-        Worker-->>Main: results channel
-        Main->>Main: Optional os.Rename()
-        Main->>Out: Write string/file result
-    end
-    deactivate Worker
     Main-->>User: Exit status code (0/1/2/3/4/5)
 ```
 
@@ -349,24 +366,69 @@ These algorithms are vulnerable to collision attacks and must be used strictly f
 
 ## Performance Benchmarks & Selection Guide
 
-Below are the measured single-core throughput results for major algorithms supported by `hashcalcmt` (benchmarked on an Intel Core i5-4590 CPU @ 3.30GHz):
+Below are the measured single-core throughput results for **all 31 supported algorithms** in `hashcalcmt` (benchmarked on an Intel Core i5-4590 CPU @ 3.30GHz):
 
 | Algorithm | Single-Core Throughput | Type | Best Use Case |
 | :--- | :--- | :--- | :--- |
-| **`XXH3-128`** | **16.08 GB/s** | Non-Cryptographic | **Maximum Performance** (de-duplication, fast integrity checks) |
-| **`HIGHWAYHASH`**| **10.04 GB/s** | Non-Cryptographic | Cryptographically strong keyed checksum |
-| **`CRC32`** | **9.02 GB/s** | Non-Cryptographic | Traditional legacy checksumming |
-| **`WYHASH`** | **3.87 GB/s** | Non-Cryptographic | Ultra-fast simple hash |
-| **`BLAKE3`** | **1.79 GB/s** | Cryptographic | **Maximum Performance Cryptographic Hashing** |
-| **`BLAKE2s`** | **465 MB/s** | Cryptographic | Standard sequential hash |
-| **`BLAKE2sp`** | **307 MB/s** | Cryptographic | Parallel variant (tree-hashing structure) |
-| **`SHA256`** | **253 MB/s** | Cryptographic | Standard baseline security |
+| **`XXH3-128`** | **18.95 GB/s** | Non-Cryptographic | **Maximum Performance** (de-duplication, fast integrity checks) |
+| **`XXH3-64`** | **18.92 GB/s** | Non-Cryptographic | Alternate ultra-fast 64-bit non-cryptographic hash |
+| **`HIGHWAYHASH`**| **10.61 GB/s** | Non-Cryptographic | Cryptographically strong keyed checksum |
+| **`XXH64`** | **10.09 GB/s** | Non-Cryptographic | High performance 64-bit hash |
+| **`CRC32`** | **8.13 GB/s** | Non-Cryptographic | Traditional legacy Ethernet/ZIP checksumming |
+| **`XXH32`** | **5.07 GB/s** | Non-Cryptographic | Standard 32-bit hash on older architectures |
+| **`WYHASH`** | **4.74 GB/s** | Non-Cryptographic | Ultra-fast simple hash |
+| **`BLAKE3`** | **2.28 GB/s** | Cryptographic | **Maximum Performance Cryptographic Hashing** |
+| **`ADLER32`** | **1.92 GB/s** | Non-Cryptographic | Fast Adler checksumming for network transfers (zlib) |
+| **`CRC64`** | **1.13 GB/s** | Non-Cryptographic | Legacy 64-bit cyclic redundancy check |
+| **`BLAKE2B`** | **669.63 MB/s**| Cryptographic | Highly optimized cryptographic hashing for 64-bit CPUs |
+| **`FNV64A`** | **658.55 MB/s**| Non-Cryptographic | Fast FNV-1a 64-bit hashing |
+| **`SHA1`** | **657.22 MB/s**| Cryptographic | Legacy Git object tracking/references |
+| **`FNV32A`** | **615.25 MB/s**| Non-Cryptographic | Fast FNV-1a 32-bit hashing |
+| **`MD5`** | **563.57 MB/s**| Cryptographic | Legacy verification (checksum validation) |
+| **`SHA512-224`** | **413.68 MB/s**| Cryptographic | SHA-512 truncated for 224-bit hashes |
+| **`SHA512-256`** | **409.99 MB/s**| Cryptographic | SHA-512 truncated for 256-bit hashes |
+| **`SHA512`** | **407.83 MB/s**| Cryptographic | Standard high-bit-depth secure hash |
+| **`SHA384`** | **406.40 MB/s**| Cryptographic | SHA-2 secure hash variant |
+| **`BLAKE2s`** | **383.53 MB/s**| Cryptographic | Standard sequential hash optimized for 8/16/32-bit CPUs |
+| **`BLAKE2sp`** | **342.04 MB/s**| Cryptographic | Parallel variant (tree-hashing structure) |
+| **`MD4`** | **318.45 MB/s**| Cryptographic | Legacy Windows NTLM authentication compatibility |
+| **`SHA256`** | **272.87 MB/s**| Cryptographic | Standard baseline security (TLS certificates) |
+| **`FNV128A`** | **259.29 MB/s**| Non-Cryptographic | FNV-1a 128-bit hash variant |
+| **`SHA3-224`** | **240.18 MB/s**| Cryptographic | Modern SHA-3 (Keccak) variant |
+| **`SHA3-256`** | **227.13 MB/s**| Cryptographic | Modern SHA-3 baseline security |
+| **`SHA3-384`** | **175.40 MB/s**| Cryptographic | Modern SHA-3 variant |
+| **`RIPEMD160`**| **129.33 MB/s**| Cryptographic | Legacy Bitcoin address generation and PGP |
+| **`SHA3-512`** | **116.18 MB/s**| Cryptographic | Maximum bit-depth SHA-3 secure hash |
+| **`SM3`** | **95.32 MB/s** | Cryptographic | China National Standard cryptographic baseline |
+| **`MD2`** | **5.95 MB/s**  | Cryptographic | Deprecated RSA legacy hashing standard |
+
+### How to Run Benchmark Tests
+
+To execute performance and allocation benchmarks on your local system:
+
+*   **Bash / Unix Shell**:
+    ```bash
+    # Navigate to the hasher package directory
+    cd hasher
+
+    # Run only the complete 31-algorithm benchmark suite
+    go test -bench=BenchmarkAllAlgorithms -run="^$"
+    ```
+
+*   **PowerShell (Windows)**:
+    ```powershell
+    # Navigate to the hasher package directory
+    cd hasher
+
+    # Run only the complete 31-algorithm benchmark suite (with quoted arguments)
+    go test "-bench=BenchmarkAllAlgorithms" -run="^$"
+    ```
 
 ### Hashing Selection Guidelines
 1. **For Max Performance (Non-Cryptographic)**:
-   * **Use `--hash=XXH3-128`**. At **16.08 GB/s**, this is fully CPU-efficient and will effortlessly saturate the fastest PCIe NVMe SSDs.
+   * **Use `--hash=XXH3-128`**. At **18.95 GB/s**, this is fully CPU-efficient and will effortlessly saturate the fastest PCIe NVMe SSDs.
 2. **For Max Performance (Cryptographic)**:
-   * **Use `--hash=BLAKE3`**. At **1.79 GB/s** per core, it is **7x faster** than SHA-256 and will easily saturate disk I/O when scaled concurrently across multiple workers.
+   * **Use `--hash=BLAKE3`**. At **2.28 GB/s** per core, it is **8x faster** than SHA-256 and will easily saturate disk I/O when scaled concurrently across multiple workers.
 3. **Storage Limitations**:
    * If hashing files on a standard SATA SSD (max ~550 MB/s), **BLAKE3**, **XXH3-128**, **CRC32**, **Wyhash**, and **HighwayHash** will all cap out at maximum disk read speeds.
    * On spinning HDDs (max ~150 MB/s), any algorithm is disk-bound. Under such constraints, using `--hash=XXH3-128` keeps CPU usage near 0%.

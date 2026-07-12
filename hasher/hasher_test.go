@@ -128,3 +128,17 @@ func BenchmarkHasher_FNV64A(b *testing.B)      { runHasherBenchmark(b, "FNV64A")
 func BenchmarkHasher_FNV128A(b *testing.B)     { runHasherBenchmark(b, "FNV128A") }
 func BenchmarkHasher_SM3(b *testing.B)         { runHasherBenchmark(b, "SM3") }
 func BenchmarkHasher_RIPEMD160(b *testing.B)   { runHasherBenchmark(b, "RIPEMD160") }
+
+func BenchmarkAllAlgorithms(b *testing.B) {
+	algos := []string{
+		"CRC32", "CRC64", "SHA256", "SHA1", "BLAKE2S", "BLAKE2B", "BLAKE2SP", "BLAKE3",
+		"MD2", "MD4", "MD5", "XXH32", "XXH64", "XXH3-64", "XXH3-128", "SHA384", "SHA512",
+		"SHA512-224", "SHA512-256", "SHA3-224", "SHA3-256", "SHA3-384", "SHA3-512", "HIGHWAYHASH", "WYHASH",
+		"ADLER32", "FNV32A", "FNV64A", "FNV128A", "SM3", "RIPEMD160",
+	}
+	for _, algo := range algos {
+		b.Run(algo, func(b *testing.B) {
+			runHasherBenchmark(b, algo)
+		})
+	}
+}
