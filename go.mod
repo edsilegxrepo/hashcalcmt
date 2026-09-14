@@ -1,6 +1,6 @@
 module criticalsys.net/hashcalcmt
 
-go 1.26
+go 1.26.0
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0
@@ -11,7 +11,7 @@ require (
 	github.com/tjfoc/gmsm v1.4.1
 	github.com/zeebo/blake3 v0.2.4
 	github.com/zeebo/xxh3 v1.1.0
-	golang.org/x/crypto v0.54.0
+	golang.org/x/crypto v0.56.0
 )
 
 require (
