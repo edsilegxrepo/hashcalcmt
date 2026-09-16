@@ -79,7 +79,7 @@ func main() {
 // 4. Configures output streaming writer (bufio buffered to file).
 // 5. Triggers executeMode and collects processing errors.
 // 6. Inspects collected errors to return granular exit codes.
-func runMain(cfg *Config, args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) int {
+func runMain(cfg *Config, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if cfg.Version {
 		_, _ = fmt.Fprintf(stdout, "Hash MT Generator - Version: %s\n", version)
 		return ExitSuccess
@@ -454,7 +454,7 @@ func processResults(results <-chan pipeline.Result, cfg *Config, sw *StructuredW
 }
 
 // decodeInputString decodes a raw string based on the chosen input encoding.
-func decodeInputString(data string, encoding string) ([]byte, error) {
+func decodeInputString(data, encoding string) ([]byte, error) {
 	switch strings.ToLower(encoding) {
 	case "utf8", "":
 		return []byte(data), nil
@@ -535,7 +535,7 @@ func (sw *StructuredWriter) WriteHeader() error {
 }
 
 // WriteRecord prints a single file-path to hash mapping to the structured stream.
-func (sw *StructuredWriter) WriteRecord(filePath string, hashHex string) error {
+func (sw *StructuredWriter) WriteRecord(filePath, hashHex string) error {
 	if sw.hashFormat == "raw" && (sw.format == "text" || sw.format == "") {
 		bytesVal, err := hex.DecodeString(hashHex)
 		if err != nil {
@@ -579,7 +579,7 @@ func (sw *StructuredWriter) WriteRecord(filePath string, hashHex string) error {
 }
 
 // WriteSingle prints a single target result.
-func (sw *StructuredWriter) WriteSingle(sourceLabel string, hashHex string, displayOnlyHash bool) error {
+func (sw *StructuredWriter) WriteSingle(sourceLabel, hashHex string, displayOnlyHash bool) error {
 	if sw.hashFormat == "raw" && (sw.format == "text" || sw.format == "") {
 		bytesVal, err := hex.DecodeString(hashHex)
 		if err != nil {
