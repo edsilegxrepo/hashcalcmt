@@ -1,0 +1,18 @@
+{
+  "name": "hashcalcmt",
+  "version": "2.0.1",
+  "release": "1",
+  "channel": "xg",
+  "entrypoint": ".",
+  "version_pkg": "main.version",
+  "build_pkg": "",
+  "summary": "Multi-threaded high-speed file checksum and hash calculator",
+  "description": "High-performance concurrent utility calculating MD5, SHA1, SHA256, SHA512, and XXH3 checksums.",
+  "maintainer": "Mis Center <support@criticalsys.net>",
+  "license": "MIT",
+  "url": "https://criticalsys.net",
+  "section": "utils",
+  "priority": "optional",
+  "install_path": "/usr/bin",
+  "cgo": false
+}
